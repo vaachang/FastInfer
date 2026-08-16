@@ -1,7 +1,7 @@
 #include "minisrv/core/bounded_queue.h"
 #include "minisrv/runtime/batch_scheduler.h"
-#include "minisrv/runtime/fake_backend.h"
 #include "minisrv/runtime/inference_request.h"
+#include "minisrv/runtime/onnxruntime_backend.h"
 
 #include <chrono>
 #include <iostream>
@@ -15,7 +15,9 @@ int main() {
         std::shared_ptr<InferenceRequest>
     > queue(16);
 
-    FakeInferenceBackend backend;
+    ONNXRuntimeBackend backend(
+        "models/mul2.onnx"
+    );
 
     BatchScheduler scheduler(
         queue,
@@ -37,9 +39,9 @@ int main() {
         request->id = i + 1;
 
         request->input = {
-            static_cast<float>(i + 1),
-            static_cast<float>(i + 2),
-            static_cast<float>(i + 3)
+            static_cast<float>(i * 3 + 1),
+            static_cast<float>(i * 3 + 2),
+            static_cast<float>(i * 3 + 3)
         };
 
         futures.emplace_back(
