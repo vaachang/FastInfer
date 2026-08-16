@@ -81,29 +81,30 @@ Batch BatchScheduler::build_batch() {
 
     batch.add(std::move(*first_request));
 
-    // 第一个请求到达后开始计时
     const auto deadline =
         std::chrono::steady_clock::now()
         + max_wait_time_;
 
     while (batch.size() < max_batch_size_) {
-        auto now = std::chrono::steady_clock::now();
+        const auto now =
+            std::chrono::steady_clock::now();
 
         if (now >= deadline) {
             break;
         }
 
-        // 在剩余时间内等待下一个请求
-        auto request = queue_.try_pop();
+        const auto remaining =
+            std::chrono::duration_cast<
+                std::chrono::milliseconds
+            >(deadline - now);
 
-        if (request) {
-            batch.add(std::move(*request));
-            continue;
+        auto request = queue_.wait_for(remaining);
+
+        if (!request) {
+            break;
         }
 
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(1)
-        );
+        batch.add(std::move(*request));
     }
 
     return batch;

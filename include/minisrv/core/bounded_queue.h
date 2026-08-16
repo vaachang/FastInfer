@@ -7,6 +7,7 @@
 #include <queue>
 #include <utility>
 #include <stdexcept>
+#include <chrono>
 
 namespace minisrv {
 
@@ -49,6 +50,32 @@ public:
         });
 
         if (queue_.empty()) {
+            return std::nullopt;
+        }
+
+        T value = std::move(queue_.front());
+        queue_.pop();
+
+        lock.unlock();
+        not_full_.notify_one();
+
+        return value;
+    }
+
+    std::optional<T> wait_for(
+        std::chrono::milliseconds timeout
+    ) {
+        std::unique_lock<std::mutex> lock(mutex_);
+
+        bool ready = not_empty_.wait_for(
+            lock,
+            timeout,
+            [this] {
+                return closed_ || !queue_.empty();
+            }
+        );
+
+        if (!ready || queue_.empty()) {
             return std::nullopt;
         }
 

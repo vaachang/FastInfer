@@ -5,7 +5,6 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
-#include <thread>
 
 int main() {
     using namespace minisrv;
@@ -22,17 +21,15 @@ int main() {
 
     scheduler.start();
 
-    for (int i = 0; i < 2; ++i) {
-        auto request =
-            std::make_shared<InferenceRequest>();
+    auto request =
+        std::make_shared<InferenceRequest>();
 
-        request->id = i;
+    request->id = 1;
 
-        queue.push(std::move(request));
-    }
+    queue.push(std::move(request));
 
     std::this_thread::sleep_for(
-        std::chrono::milliseconds(200)
+        std::chrono::milliseconds(150)
     );
 
     scheduler.stop();
