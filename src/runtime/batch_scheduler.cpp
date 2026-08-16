@@ -5,14 +5,16 @@
 
 namespace minisrv {
 
-BatchScheduler::BatchScheduler(
-    RequestQueue& queue,
-    std::size_t max_batch_size,
-    std::chrono::milliseconds max_wait_time
-)
-    : queue_(queue),
-      max_batch_size_(max_batch_size),
-      max_wait_time_(max_wait_time)
+    BatchScheduler::BatchScheduler(
+        RequestQueue& queue,
+        InferenceBackend& backend,
+        std::size_t max_batch_size,
+        std::chrono::milliseconds max_wait_time
+    )
+        : queue_(queue),
+          backend_(backend),
+          max_batch_size_(max_batch_size),
+          max_wait_time_(max_wait_time)
 {
     if (max_batch_size_ == 0) {
         throw std::invalid_argument(
@@ -62,10 +64,7 @@ void BatchScheduler::run() {
             break;
         }
 
-        std::cout
-            << "Built batch with "
-            << batch.size()
-            << " requests\n";
+        backend_.infer(batch);
     }
 }
 

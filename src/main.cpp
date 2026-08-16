@@ -1,57 +1,67 @@
+#include "minisrv/core/bounded_queue.h"
+#include "minisrv/runtime/batch_scheduler.h"
 #include "minisrv/runtime/fake_backend.h"
+#include "minisrv/runtime/inference_request.h"
 
+#include <chrono>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 int main() {
     using namespace minisrv;
 
-    auto request1 =
-        std::make_shared<InferenceRequest>();
-
-    request1->id = 1;
-    request1->input = {1.0f, 2.0f, 3.0f};
-
-    auto request2 =
-        std::make_shared<InferenceRequest>();
-
-    request2->id = 2;
-    request2->input = {4.0f, 5.0f, 6.0f};
-
-    auto future1 = request1->promise.get_future();
-    auto future2 = request2->promise.get_future();
-
-    Batch batch;
-
-    batch.add(request1);
-    batch.add(request2);
+    BoundedBlockingQueue<
+        std::shared_ptr<InferenceRequest>
+    > queue(16);
 
     FakeInferenceBackend backend;
 
-    backend.infer(batch);
+    BatchScheduler scheduler(
+        queue,
+        backend,
+        4,
+        std::chrono::milliseconds(100)
+    );
 
-    auto result1 = future1.get();
-    auto result2 = future2.get();
+    scheduler.start();
 
-    std::cout << "Request "
-              << request1->id
-              << ":";
+    std::vector<
+        std::future<InferenceResult>
+    > futures;
 
-    for (float value : result1.output) {
-        std::cout << ' ' << value;
+    for (int i = 0; i < 4; ++i) {
+        auto request =
+            std::make_shared<InferenceRequest>();
+
+        request->id = i + 1;
+
+        request->input = {
+            static_cast<float>(i + 1),
+            static_cast<float>(i + 2),
+            static_cast<float>(i + 3)
+        };
+
+        futures.emplace_back(
+            request->promise.get_future()
+        );
+
+        queue.push(std::move(request));
     }
 
-    std::cout << '\n';
+    for (auto& future : futures) {
+        auto result = future.get();
 
-    std::cout << "Request "
-              << request2->id
-              << ":";
+        std::cout << "Result:";
 
-    for (float value : result2.output) {
-        std::cout << ' ' << value;
+        for (float value : result.output) {
+            std::cout << ' ' << value;
+        }
+
+        std::cout << '\n';
     }
 
-    std::cout << '\n';
+    scheduler.stop();
 
     return 0;
 }

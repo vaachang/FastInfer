@@ -2,6 +2,7 @@
 
 #include "minisrv/core/bounded_queue.h"
 #include "minisrv/runtime/batch.h"
+#include "minisrv/runtime/inference_backend.h"
 
 #include <chrono>
 #include <cstddef>
@@ -18,6 +19,7 @@ public:
 
     BatchScheduler(
         RequestQueue& queue,
+        InferenceBackend& backend,
         std::size_t max_batch_size,
         std::chrono::milliseconds max_wait_time
     );
@@ -38,6 +40,8 @@ private:
 
 private:
     RequestQueue& queue_;
+
+    InferenceBackend& backend_;
 
     const std::size_t max_batch_size_;
     const std::chrono::milliseconds max_wait_time_;
