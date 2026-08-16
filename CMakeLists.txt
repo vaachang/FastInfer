@@ -15,6 +15,7 @@ add_executable(minisrv
     src/core/thread_pool.cpp
     src/runtime/batch.cpp
     src/runtime/batch_scheduler.cpp
+    src/runtime/fake_backend.cpp
 )
 
 target_include_directories(minisrv
