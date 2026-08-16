@@ -1,36 +1,41 @@
-#include "minisrv/runtime/batch.h"
+#include "minisrv/core/bounded_queue.h"
+#include "minisrv/runtime/batch_scheduler.h"
+#include "minisrv/runtime/inference_request.h"
 
+#include <chrono>
 #include <iostream>
+#include <memory>
+#include <thread>
 
 int main() {
-    auto request1 =
-        std::make_shared<minisrv::InferenceRequest>();
+    using namespace minisrv;
 
-    request1->id = 1;
-    request1->input = {1.0f, 2.0f};
+    BoundedBlockingQueue<
+        std::shared_ptr<InferenceRequest>
+    > queue(16);
 
-    auto request2 =
-        std::make_shared<minisrv::InferenceRequest>();
+    BatchScheduler scheduler(
+        queue,
+        4,
+        std::chrono::milliseconds(100)
+    );
 
-    request2->id = 2;
-    request2->input = {3.0f, 4.0f};
+    scheduler.start();
 
-    minisrv::Batch batch;
+    for (int i = 0; i < 2; ++i) {
+        auto request =
+            std::make_shared<InferenceRequest>();
 
-    batch.add(request1);
-    batch.add(request2);
+        request->id = i;
 
-    std::cout
-        << "Batch size: "
-        << batch.size()
-        << '\n';
-
-    for (const auto& request : batch.requests()) {
-        std::cout
-            << "Request ID: "
-            << request->id
-            << '\n';
+        queue.push(std::move(request));
     }
+
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(200)
+    );
+
+    scheduler.stop();
 
     return 0;
 }

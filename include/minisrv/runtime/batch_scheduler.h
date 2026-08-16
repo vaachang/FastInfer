@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <memory>
 #include <thread>
+#include <atomic>
 
 namespace minisrv {
 
@@ -43,7 +44,7 @@ private:
 
     std::thread scheduler_thread_;
 
-    bool running_{false};
+    std::atomic<bool> running_{false};
 };
 
 } // namespace minisrv
