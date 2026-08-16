@@ -14,6 +14,7 @@ add_executable(minisrv
     src/main.cpp
     src/core/thread_pool.cpp
     src/runtime/batch.cpp
+    src/runtime/batch_scheduler.cpp
 )
 
 target_include_directories(minisrv
