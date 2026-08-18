@@ -5,6 +5,7 @@
 #include <cstring>
 #include <array>
 #include <iostream>
+#include <chrono>
 
 namespace minisrv {
 
@@ -165,6 +166,14 @@ void ONNXRuntimeBackend::infer(Batch& batch) {
         output_names,
         1
     );
+
+    const auto inference_end =
+        std::chrono::steady_clock::now();
+
+    for (const auto& request : batch.requests()) {
+        request->inference_end_time =
+            inference_end;
+    }
 
     // --------------------------------------------------
     // 4. 获取输出 Tensor
