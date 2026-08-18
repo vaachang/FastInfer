@@ -32,7 +32,7 @@ int main() {
         std::future<InferenceResult>
     > futures;
 
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 2; ++i) {
         auto request =
             std::make_shared<InferenceRequest>();
 
