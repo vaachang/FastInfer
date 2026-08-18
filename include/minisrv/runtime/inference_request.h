@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <future>
 #include <vector>
@@ -18,6 +19,9 @@ struct InferenceRequest {
     std::vector<float> input;
 
     std::promise<InferenceResult> promise;
+
+    // Benchmark timestamps
+    std::chrono::steady_clock::time_point submit_time;
 };
 
 } // namespace minisrv

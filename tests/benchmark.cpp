@@ -3,28 +3,25 @@
 #include "minisrv/runtime/inference_request.h"
 #include "minisrv/runtime/onnxruntime_backend.h"
 
-#include <algorithm>
+#include <atomic>
 #include <chrono>
-#include <future>
+#include <cstddef>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <thread>
 #include <vector>
-#include <string>
 
 using Clock = std::chrono::steady_clock;
 
-struct LatencyRecord {
-    double milliseconds;
-};
-
-int main(int argc, char* argv[])  {
+int main(int argc, char* argv[]) {
     using namespace minisrv;
 
-    int num_requests = 1000;
-    constexpr int num_clients = 8;
+    // ----------------------------------------
+    // 参数
+    // ----------------------------------------
+
     std::size_t max_batch_size = 8;
+    int duration_seconds = 10;
 
     if (argc >= 2) {
         max_batch_size =
@@ -34,17 +31,31 @@ int main(int argc, char* argv[])  {
     }
 
     if (argc >= 3) {
-        num_requests =
+        duration_seconds =
             std::stoi(argv[2]);
     }
+
+    constexpr int num_clients = 8;
+
+    // ----------------------------------------
+    // Queue
+    // ----------------------------------------
 
     BoundedBlockingQueue<
         std::shared_ptr<InferenceRequest>
     > queue(128);
 
+    // ----------------------------------------
+    // Backend
+    // ----------------------------------------
+
     ONNXRuntimeBackend backend(
         "models/mul2.onnx"
     );
+
+    // ----------------------------------------
+    // Scheduler
+    // ----------------------------------------
 
     BatchScheduler scheduler(
         queue,
@@ -55,34 +66,42 @@ int main(int argc, char* argv[])  {
 
     scheduler.start();
 
-    std::vector<std::future<InferenceResult>> futures;
-    std::vector<Clock::time_point> submit_times;
+    // ----------------------------------------
+    // Benchmark state
+    // ----------------------------------------
 
-    futures.resize(num_requests);
-    submit_times.resize(num_requests);
+    std::atomic<bool> generating{true};
 
-    auto start = Clock::now();
+    std::atomic<std::size_t> request_count{0};
 
-    // --------------------------------------------------
-    // 多个 Client 并发提交请求
-    // --------------------------------------------------
+    std::atomic<std::size_t> completed_count{0};
 
     std::vector<std::thread> clients;
 
+    auto benchmark_start = Clock::now();
+
+    // ----------------------------------------
+    // Client threads
+    // ----------------------------------------
+
     for (int t = 0; t < num_clients; ++t) {
-        clients.emplace_back([&, t]() {
 
-            const int begin =
-                t * num_requests / num_clients;
+        clients.emplace_back([&]() {
 
-            const int end =
-                (t + 1) * num_requests / num_clients;
+            while (
+                generating.load(
+                    std::memory_order_relaxed
+                )
+            ) {
 
-            for (int i = begin; i < end; ++i) {
                 auto request =
                     std::make_shared<InferenceRequest>();
 
-                request->id = i;
+                request->id =
+                    request_count.fetch_add(
+                        1,
+                        std::memory_order_relaxed
+                    );
 
                 request->input = {
                     1.0f,
@@ -90,65 +109,172 @@ int main(int argc, char* argv[])  {
                     3.0f
                 };
 
-                futures[i] =
+                request->submit_time =
+                    Clock::now();
+
+                auto future =
                     request->promise.get_future();
 
-                submit_times[i] = Clock::now();
+                // --------------------------------
+                // 提交请求
+                // --------------------------------
 
-                if (!queue.push(std::move(request))) {
+                if (!queue.push(request)) {
+                    break;
+                }
+
+                // --------------------------------
+                // 等待推理完成
+                // --------------------------------
+
+                try {
+                    future.get();
+
+                    completed_count.fetch_add(
+                        1,
+                        std::memory_order_relaxed
+                    );
+
+                } catch (const std::future_error& e) {
+
                     std::cerr
-                        << "Queue rejected request "
-                        << i
+                        << "future error: "
+                        << e.what()
                         << '\n';
+
+                    break;
                 }
             }
         });
     }
 
+    // ----------------------------------------
+    // 持续运行
+    // ----------------------------------------
+
+    std::this_thread::sleep_for(
+        std::chrono::seconds(
+            duration_seconds
+        )
+    );
+
+    // ----------------------------------------
+    // 停止产生新请求
+    // ----------------------------------------
+
+    generating.store(
+        false,
+        std::memory_order_relaxed
+    );
+
+    // ----------------------------------------
+    // 等待所有 Client
+    //
+    // 注意：
+    // 此时 Scheduler 仍然运行
+    // ----------------------------------------
+
     for (auto& client : clients) {
         client.join();
     }
 
-    // --------------------------------------------------
-    // 等待所有请求完成，并统计延迟
-    // --------------------------------------------------
+    // ----------------------------------------
+    // 所有 Client 都已经结束
+    //
+    // 此时理论上没有未完成的 future
+    // ----------------------------------------
 
-    std::vector<LatencyRecord> latencies;
-    latencies.reserve(num_requests);
+    auto benchmark_end = Clock::now();
 
-    for (int i = 0; i < num_requests; ++i) {
-        futures[i].get();
-
-        auto finish = Clock::now();
-
-        double latency =
-            std::chrono::duration<double, std::milli>(
-                finish - submit_times[i]
-            ).count();
-
-        latencies.push_back({
-            latency
-        });
-    }
-
-    auto end = Clock::now();
+    // ----------------------------------------
+    // 停止 Scheduler
+    // ----------------------------------------
 
     scheduler.stop();
+
+    // ----------------------------------------
+    // 统计
+    // ----------------------------------------
+
+    const auto total_requests =
+        request_count.load(
+            std::memory_order_relaxed
+        );
+
+    const auto completed_requests =
+        completed_count.load(
+            std::memory_order_relaxed
+        );
+
+    const double elapsed =
+        std::chrono::duration<double>(
+            benchmark_end - benchmark_start
+        ).count();
+
+    const double throughput =
+        elapsed > 0.0
+            ? static_cast<double>(
+                completed_requests
+              ) / elapsed
+            : 0.0;
 
     const auto total_batches =
         scheduler.total_batches();
 
-    const auto total_requests =
+    const auto batched_requests =
         scheduler.total_requests();
 
     const auto max_actual_batch =
         scheduler.max_batch_size_seen();
 
-    double average_batch_size =
-        total_batches == 0
-            ? 0.0
-            : static_cast<double>(total_requests)
-              / total_batches;
+    const double average_batch_size =
+        total_batches > 0
+            ? static_cast<double>(
+                batched_requests
+              ) / total_batches
+            : 0.0;
+
+    // ----------------------------------------
+    // 输出
+    // ----------------------------------------
+
+    std::cout
+        << "========== Benchmark ==========\n";
+
+    std::cout
+        << "Clients: "
+        << num_clients
+        << '\n';
+
+    std::cout
+        << "Duration: "
+        << duration_seconds
+        << " s\n";
+
+    std::cout
+        << "Max Batch Size: "
+        << max_batch_size
+        << '\n';
+
+    std::cout
+        << "Total Requests: "
+        << total_requests
+        << '\n';
+
+    std::cout
+        << "Completed Requests: "
+        << completed_requests
+        << '\n';
+
+    std::cout
+        << "Elapsed: "
+        << elapsed
+        << " s\n";
+
+    std::cout
+        << "Throughput: "
+        << throughput
+        << " req/s\n";
 
     std::cout
         << "Total Batches: "
@@ -164,94 +290,6 @@ int main(int argc, char* argv[])  {
         << "Max Actual Batch Size: "
         << max_actual_batch
         << '\n';
-
-    // --------------------------------------------------
-    // 排序
-    // --------------------------------------------------
-
-    std::sort(
-        latencies.begin(),
-        latencies.end(),
-        [](const LatencyRecord& a,
-           const LatencyRecord& b) {
-            return a.milliseconds <
-                   b.milliseconds;
-        }
-    );
-
-    auto percentile =
-        [&](double p) {
-
-            std::size_t index =
-                static_cast<std::size_t>(
-                    p * latencies.size()
-                );
-
-            if (index >= latencies.size()) {
-                index = latencies.size() - 1;
-            }
-
-            return latencies[index].milliseconds;
-        };
-
-    // --------------------------------------------------
-    // 统计吞吐
-    // --------------------------------------------------
-
-    double elapsed =
-        std::chrono::duration<double>(
-            end - start
-        ).count();
-
-    double throughput =
-        num_requests / elapsed;
-
-    // --------------------------------------------------
-    // 输出
-    // --------------------------------------------------
-
-    std::cout
-        << "========== Benchmark ==========\n";
-
-    std::cout
-        << "Requests: "
-        << num_requests
-        << '\n';
-
-    std::cout
-        << "Clients: "
-        << num_clients
-        << '\n';
-
-    std::cout
-        << "Max Batch Size: "
-        << max_batch_size
-        << '\n';
-
-    std::cout
-        << "Elapsed: "
-        << elapsed
-        << " s\n";
-
-    std::cout
-        << "Throughput: "
-        << throughput
-        << " req/s\n";
-
-    std::cout
-        << "P50: "
-        << percentile(0.50)
-        << " ms\n";
-
-    std::cout
-        << "P95: "
-        << percentile(0.95)
-        << " ms\n";
-
-    std::cout
-        << "P99: "
-        << percentile(0.99)
-        << " ms\n";
 
     std::cout
         << "================================\n";
