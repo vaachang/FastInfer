@@ -12,6 +12,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <algorithm>
+#include <mutex>
 
 using Clock = std::chrono::steady_clock;
 
@@ -178,6 +180,10 @@ int main(int argc, char* argv[]) {
 
         std::atomic<std::size_t> completed_count{0};
 
+        std::mutex latency_mutex;
+
+        std::vector<double> latencies;
+
         std::vector<std::thread> clients;
 
         auto start = Clock::now();
@@ -211,6 +217,8 @@ int main(int argc, char* argv[]) {
                         3.0f
                     };
 
+                    request->submit_time = Clock::now();
+
                     auto future =
                         request->promise.get_future();
 
@@ -221,6 +229,21 @@ int main(int argc, char* argv[]) {
                     try {
 
                         future.get();
+
+                        const auto finish_time = Clock::now();
+
+                        const double latency_ms =
+                            std::chrono::duration<double, std::milli>(
+                                finish_time - request->submit_time
+                            ).count();
+
+                        {
+                            std::lock_guard<std::mutex> lock(
+                                latency_mutex
+                            );
+
+                            latencies.push_back(latency_ms);
+                        }
 
                         completed_count.fetch_add(
                             1,
@@ -292,6 +315,32 @@ int main(int argc, char* argv[]) {
                     completed
                   ) / elapsed
                 : 0.0;
+        double p50 = 0.0;
+        double p95 = 0.0;
+        double p99 = 0.0;
+
+        if (!latencies.empty()) {
+
+            std::sort(
+                latencies.begin(),
+                latencies.end()
+            );
+
+            auto percentile =
+                [&](double p) -> double {
+
+                    const std::size_t index =
+                        static_cast<std::size_t>(
+                            p * (latencies.size() - 1)
+                        );
+
+                    return latencies[index];
+                };
+
+            p50 = percentile(0.50);
+            p95 = percentile(0.95);
+            p99 = percentile(0.99);
+        }
 
         const auto batches =
             scheduler.total_batches();
@@ -340,6 +389,21 @@ int main(int argc, char* argv[]) {
             << "Throughput: "
             << throughput
             << " req/s\n";
+
+        std::cout
+            << "P50: "
+            << p50
+            << " ms\n";
+
+        std::cout
+            << "P95: "
+            << p95
+            << " ms\n";
+
+        std::cout
+            << "P99: "
+            << p99
+            << " ms\n";
 
         std::cout
             << "Total Batches: "
