@@ -81,6 +81,30 @@ target_link_libraries(ort_infer_test
     ${ONNXRUNTIME_LIBRARIES}
 )
 
+add_executable(benchmark
+    tests/benchmark.cpp
+    src/core/thread_pool.cpp
+    src/runtime/batch.cpp
+    src/runtime/batch_scheduler.cpp
+    src/runtime/onnxruntime_backend.cpp
+)
+
+target_include_directories(benchmark
+    PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${ONNXRUNTIME_INCLUDE_DIRS}
+)
+
+target_link_directories(benchmark
+    PRIVATE
+    ${ONNXRUNTIME_LIBRARY_DIRS}
+)
+
+target_link_libraries(benchmark
+    PRIVATE
+    ${ONNXRUNTIME_LIBRARIES}
+)
+
 if (MSVC)
     target_compile_options(minisrv PRIVATE /W4)
 else()
