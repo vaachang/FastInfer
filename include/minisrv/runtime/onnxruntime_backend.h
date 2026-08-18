@@ -4,7 +4,9 @@
 
 #include <onnxruntime_cxx_api.h>
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace minisrv {
 
@@ -23,6 +25,9 @@ private:
 
     std::string input_name_;
     std::string output_name_;
+
+    std::vector<int64_t> input_shape_;
+    std::size_t feature_size_ = 0;
 };
 
 } // namespace minisrv
