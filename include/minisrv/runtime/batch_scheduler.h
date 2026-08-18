@@ -26,6 +26,10 @@ public:
 
     ~BatchScheduler();
 
+    std::size_t total_batches() const;
+    std::size_t total_requests() const;
+    std::size_t max_batch_size_seen() const;
+
     BatchScheduler(const BatchScheduler&) = delete;
     BatchScheduler& operator=(const BatchScheduler&) = delete;
 
@@ -49,6 +53,10 @@ private:
     std::thread scheduler_thread_;
 
     std::atomic<bool> running_{false};
+
+    std::atomic<std::size_t> total_batches_{0};
+    std::atomic<std::size_t> total_requests_{0};
+    std::atomic<std::size_t> max_batch_size_seen_{0};
 };
 
 } // namespace minisrv

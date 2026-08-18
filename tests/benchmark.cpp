@@ -122,6 +122,36 @@ int main() {
 
     scheduler.stop();
 
+    const auto total_batches =
+        scheduler.total_batches();
+
+    const auto total_requests =
+        scheduler.total_requests();
+
+    const auto max_actual_batch =
+        scheduler.max_batch_size_seen();
+
+    double average_batch_size =
+        total_batches == 0
+            ? 0.0
+            : static_cast<double>(total_requests)
+              / total_batches;
+
+    std::cout
+        << "Total Batches: "
+        << total_batches
+        << '\n';
+
+    std::cout
+        << "Average Batch Size: "
+        << average_batch_size
+        << '\n';
+
+    std::cout
+        << "Max Actual Batch Size: "
+        << max_actual_batch
+        << '\n';
+
     // --------------------------------------------------
     // 排序
     // --------------------------------------------------

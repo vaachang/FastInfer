@@ -63,7 +63,33 @@ void BatchScheduler::run() {
         if (batch.size() == 0) {
             break;
         }
+        const auto current_batch_size =
+            batch.size();
 
+        total_batches_.fetch_add(
+            1,
+            std::memory_order_relaxed
+        );
+
+        total_requests_.fetch_add(
+            current_batch_size,
+            std::memory_order_relaxed
+        );
+
+        auto old_max =
+            max_batch_size_seen_.load(
+                std::memory_order_relaxed
+            );
+
+        while (
+            old_max < current_batch_size &&
+            !max_batch_size_seen_.compare_exchange_weak(
+                old_max,
+                current_batch_size,
+                std::memory_order_relaxed
+            )
+        ) {
+        }
         backend_.infer(batch);
     }
 }
@@ -107,6 +133,24 @@ Batch BatchScheduler::build_batch() {
     }
 
     return batch;
+}
+
+std::size_t BatchScheduler::total_batches() const {
+    return total_batches_.load(
+        std::memory_order_relaxed
+    );
+}
+
+std::size_t BatchScheduler::total_requests() const {
+    return total_requests_.load(
+        std::memory_order_relaxed
+    );
+}
+
+std::size_t BatchScheduler::max_batch_size_seen() const {
+    return max_batch_size_seen_.load(
+        std::memory_order_relaxed
+    );
 }
 
 } // namespace minisrv
