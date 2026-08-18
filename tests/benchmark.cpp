@@ -22,6 +22,19 @@ struct RoundResult {
     std::size_t completed = 0;
     double elapsed = 0.0;
     double throughput = 0.0;
+
+    double e2e_p50 = 0.0;
+    double e2e_p95 = 0.0;
+    double e2e_p99 = 0.0;
+
+    double queue_p50 = 0.0;
+    double queue_p95 = 0.0;
+    double queue_p99 = 0.0;
+
+    double inference_p50 = 0.0;
+    double inference_p95 = 0.0;
+    double inference_p99 = 0.0;
+
     std::size_t batches = 0;
     double average_batch = 0.0;
     std::size_t max_batch = 0;
@@ -182,7 +195,9 @@ int main(int argc, char* argv[]) {
 
         std::mutex latency_mutex;
 
-        std::vector<double> latencies;
+        std::vector<double> e2e_latencies;
+        std::vector<double> queue_latencies;
+        std::vector<double> inference_latencies;
 
         std::vector<std::thread> clients;
 
@@ -232,9 +247,21 @@ int main(int argc, char* argv[]) {
 
                         const auto finish_time = Clock::now();
 
-                        const double latency_ms =
+                        const double e2e_ms =
                             std::chrono::duration<double, std::milli>(
                                 finish_time - request->submit_time
+                            ).count();
+
+                        const double queue_ms =
+                            std::chrono::duration<double, std::milli>(
+                                request->batch_start_time -
+                                request->submit_time
+                            ).count();
+
+                        const double inference_ms =
+                            std::chrono::duration<double, std::milli>(
+                                request->inference_end_time -
+                                request->inference_start_time
                             ).count();
 
                         {
@@ -242,7 +269,9 @@ int main(int argc, char* argv[]) {
                                 latency_mutex
                             );
 
-                            latencies.push_back(latency_ms);
+                            e2e_latencies.push_back(e2e_ms);
+                            queue_latencies.push_back(queue_ms);
+                            inference_latencies.push_back(inference_ms);
                         }
 
                         completed_count.fetch_add(
@@ -319,28 +348,54 @@ int main(int argc, char* argv[]) {
         double p95 = 0.0;
         double p99 = 0.0;
 
-        if (!latencies.empty()) {
+        auto percentile = [](
+            std::vector<double>& values,
+            double p
+        ) -> double {
+
+            if (values.empty()) {
+                return 0.0;
+            }
 
             std::sort(
-                latencies.begin(),
-                latencies.end()
+                values.begin(),
+                values.end()
             );
 
-            auto percentile =
-                [&](double p) -> double {
+            const std::size_t index =
+                static_cast<std::size_t>(
+                    p * (values.size() - 1)
+                );
 
-                    const std::size_t index =
-                        static_cast<std::size_t>(
-                            p * (latencies.size() - 1)
-                        );
+            return values[index];
+        };
 
-                    return latencies[index];
-                };
+        const double e2e_p50 =
+            percentile(e2e_latencies, 0.50);
 
-            p50 = percentile(0.50);
-            p95 = percentile(0.95);
-            p99 = percentile(0.99);
-        }
+        const double e2e_p95 =
+            percentile(e2e_latencies, 0.95);
+
+        const double e2e_p99 =
+            percentile(e2e_latencies, 0.99);
+
+        const double queue_p50 =
+            percentile(queue_latencies, 0.50);
+
+        const double queue_p95 =
+            percentile(queue_latencies, 0.95);
+
+        const double queue_p99 =
+            percentile(queue_latencies, 0.99);
+
+        const double inference_p50 =
+            percentile(inference_latencies, 0.50);
+
+        const double inference_p95 =
+            percentile(inference_latencies, 0.95);
+
+        const double inference_p99 =
+            percentile(inference_latencies, 0.99);
 
         const auto batches =
             scheduler.total_batches();
@@ -364,6 +419,18 @@ int main(int argc, char* argv[]) {
         result.completed = completed;
         result.elapsed = elapsed;
         result.throughput = throughput;
+
+        result.e2e_p50 = e2e_p50;
+        result.e2e_p95 = e2e_p95;
+        result.e2e_p99 = e2e_p99;
+
+        result.queue_p50 = queue_p50;
+        result.queue_p95 = queue_p95;
+        result.queue_p99 = queue_p99;
+
+        result.inference_p50 = inference_p50;
+        result.inference_p95 = inference_p95;
+        result.inference_p99 = inference_p99;
         result.batches = batches;
         result.average_batch = average_batch;
         result.max_batch = max_batch;
@@ -391,18 +458,51 @@ int main(int argc, char* argv[]) {
             << " req/s\n";
 
         std::cout
-            << "P50: "
-            << p50
+            << "========== Latency ==========\n";
+
+        std::cout
+            << "E2E P50: "
+            << e2e_p50
             << " ms\n";
 
         std::cout
-            << "P95: "
-            << p95
+            << "E2E P95: "
+            << e2e_p95
             << " ms\n";
 
         std::cout
-            << "P99: "
-            << p99
+            << "E2E P99: "
+            << e2e_p99
+            << " ms\n";
+
+        std::cout
+            << "Queue Wait P50: "
+            << queue_p50
+            << " ms\n";
+
+        std::cout
+            << "Queue Wait P95: "
+            << queue_p95
+            << " ms\n";
+
+        std::cout
+            << "Queue Wait P99: "
+            << queue_p99
+            << " ms\n";
+
+        std::cout
+            << "Inference P50: "
+            << inference_p50
+            << " ms\n";
+
+        std::cout
+            << "Inference P95: "
+            << inference_p95
+            << " ms\n";
+
+        std::cout
+            << "Inference P99: "
+            << inference_p99
             << " ms\n";
 
         std::cout
