@@ -22,6 +22,15 @@ struct InferenceRequest {
 
     // Benchmark timestamps
     std::chrono::steady_clock::time_point submit_time;
+
+    std::chrono::steady_clock::time_point
+        batch_start_time;
+
+    std::chrono::steady_clock::time_point
+        inference_start_time;
+
+    std::chrono::steady_clock::time_point
+        inference_end_time;
 };
 
 } // namespace minisrv

@@ -90,7 +90,23 @@ void BatchScheduler::run() {
             )
         ) {
         }
+        const auto inference_start =
+            std::chrono::steady_clock::now();
+
+        for (const auto& request : batch.requests()) {
+            request->inference_start_time =
+                inference_start;
+        }
+
         backend_.infer(batch);
+
+        const auto inference_end =
+            std::chrono::steady_clock::now();
+
+        for (const auto& request : batch.requests()) {
+            request->inference_end_time =
+                inference_end;
+        }
     }
 }
 
@@ -103,6 +119,9 @@ Batch BatchScheduler::build_batch() {
     if (!first_request) {
         return batch;
     }
+
+    (*first_request)->batch_start_time =
+        std::chrono::steady_clock::now();
 
     batch.add(std::move(*first_request));
 
@@ -128,6 +147,9 @@ Batch BatchScheduler::build_batch() {
         if (!request) {
             break;
         }
+
+        (*request)->batch_start_time =
+            std::chrono::steady_clock::now();
 
         batch.add(std::move(*request));
     }
