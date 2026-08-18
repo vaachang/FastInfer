@@ -11,6 +11,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <string>
 
 using Clock = std::chrono::steady_clock;
 
@@ -18,12 +19,24 @@ struct LatencyRecord {
     double milliseconds;
 };
 
-int main() {
+int main(int argc, char* argv[])  {
     using namespace minisrv;
 
-    constexpr int num_requests = 1000;
+    int num_requests = 1000;
     constexpr int num_clients = 8;
-    constexpr std::size_t max_batch_size = 8;
+    std::size_t max_batch_size = 8;
+
+    if (argc >= 2) {
+        max_batch_size =
+            static_cast<std::size_t>(
+                std::stoul(argv[1])
+            );
+    }
+
+    if (argc >= 3) {
+        num_requests =
+            std::stoi(argv[2]);
+    }
 
     BoundedBlockingQueue<
         std::shared_ptr<InferenceRequest>
