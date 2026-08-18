@@ -8,20 +8,35 @@
 #include <cstddef>
 #include <iostream>
 #include <memory>
+#include <numeric>
+#include <string>
 #include <thread>
 #include <vector>
 
 using Clock = std::chrono::steady_clock;
 
+struct RoundResult {
+    std::size_t requests = 0;
+    std::size_t completed = 0;
+    double elapsed = 0.0;
+    double throughput = 0.0;
+    std::size_t batches = 0;
+    double average_batch = 0.0;
+    std::size_t max_batch = 0;
+};
+
 int main(int argc, char* argv[]) {
+
     using namespace minisrv;
 
-    // ----------------------------------------
-    // 参数
-    // ----------------------------------------
+    // --------------------------------------------------
+    // Parameters
+    // --------------------------------------------------
 
     std::size_t max_batch_size = 8;
+    int warmup_seconds = 5;
     int duration_seconds = 10;
+    int rounds = 3;
 
     if (argc >= 2) {
         max_batch_size =
@@ -31,31 +46,41 @@ int main(int argc, char* argv[]) {
     }
 
     if (argc >= 3) {
-        duration_seconds =
+        warmup_seconds =
             std::stoi(argv[2]);
+    }
+
+    if (argc >= 4) {
+        duration_seconds =
+            std::stoi(argv[3]);
+    }
+
+    if (argc >= 5) {
+        rounds =
+            std::stoi(argv[4]);
     }
 
     constexpr int num_clients = 8;
 
-    // ----------------------------------------
-    // Queue
-    // ----------------------------------------
-
-    BoundedBlockingQueue<
-        std::shared_ptr<InferenceRequest>
-    > queue(128);
-
-    // ----------------------------------------
+    // --------------------------------------------------
     // Backend
-    // ----------------------------------------
+    // --------------------------------------------------
 
     ONNXRuntimeBackend backend(
         "models/mul2.onnx"
     );
 
-    // ----------------------------------------
+    // --------------------------------------------------
+    // Queue
+    // --------------------------------------------------
+
+    BoundedBlockingQueue<
+        std::shared_ptr<InferenceRequest>
+    > queue(128);
+
+    // --------------------------------------------------
     // Scheduler
-    // ----------------------------------------
+    // --------------------------------------------------
 
     BatchScheduler scheduler(
         queue,
@@ -66,30 +91,28 @@ int main(int argc, char* argv[]) {
 
     scheduler.start();
 
-    // ----------------------------------------
-    // Benchmark state
-    // ----------------------------------------
+    // --------------------------------------------------
+    // Warmup
+    // --------------------------------------------------
 
-    std::atomic<bool> generating{true};
+    std::cout
+        << "========== Warmup ==========\n";
 
-    std::atomic<std::size_t> request_count{0};
+    std::cout
+        << "Warmup: "
+        << warmup_seconds
+        << " s\n";
 
-    std::atomic<std::size_t> completed_count{0};
+    std::atomic<bool> warmup_running{true};
 
-    std::vector<std::thread> clients;
-
-    auto benchmark_start = Clock::now();
-
-    // ----------------------------------------
-    // Client threads
-    // ----------------------------------------
+    std::vector<std::thread> warmup_clients;
 
     for (int t = 0; t < num_clients; ++t) {
 
-        clients.emplace_back([&]() {
+        warmup_clients.emplace_back([&]() {
 
             while (
-                generating.load(
+                warmup_running.load(
                     std::memory_order_relaxed
                 )
             ) {
@@ -97,11 +120,7 @@ int main(int argc, char* argv[]) {
                 auto request =
                     std::make_shared<InferenceRequest>();
 
-                request->id =
-                    request_count.fetch_add(
-                        1,
-                        std::memory_order_relaxed
-                    );
+                request->id = 0;
 
                 request->input = {
                     1.0f,
@@ -109,137 +128,263 @@ int main(int argc, char* argv[]) {
                     3.0f
                 };
 
-                request->submit_time =
-                    Clock::now();
-
                 auto future =
                     request->promise.get_future();
-
-                // --------------------------------
-                // 提交请求
-                // --------------------------------
 
                 if (!queue.push(request)) {
                     break;
                 }
 
-                // --------------------------------
-                // 等待推理完成
-                // --------------------------------
-
-                try {
-                    future.get();
-
-                    completed_count.fetch_add(
-                        1,
-                        std::memory_order_relaxed
-                    );
-
-                } catch (const std::future_error& e) {
-
-                    std::cerr
-                        << "future error: "
-                        << e.what()
-                        << '\n';
-
-                    break;
-                }
+                future.get();
             }
         });
     }
 
-    // ----------------------------------------
-    // 持续运行
-    // ----------------------------------------
-
     std::this_thread::sleep_for(
         std::chrono::seconds(
-            duration_seconds
+            warmup_seconds
         )
     );
 
-    // ----------------------------------------
-    // 停止产生新请求
-    // ----------------------------------------
-
-    generating.store(
+    warmup_running.store(
         false,
         std::memory_order_relaxed
     );
 
-    // ----------------------------------------
-    // 等待所有 Client
-    //
-    // 注意：
-    // 此时 Scheduler 仍然运行
-    // ----------------------------------------
-
-    for (auto& client : clients) {
+    for (auto& client : warmup_clients) {
         client.join();
     }
 
-    // ----------------------------------------
-    // 所有 Client 都已经结束
-    //
-    // 此时理论上没有未完成的 future
-    // ----------------------------------------
+    std::cout
+        << "Warmup finished.\n\n";
 
-    auto benchmark_end = Clock::now();
+    // --------------------------------------------------
+    // Benchmark rounds
+    // --------------------------------------------------
 
-    // ----------------------------------------
-    // 停止 Scheduler
-    // ----------------------------------------
+    std::vector<RoundResult> results;
 
-    scheduler.stop();
+    for (int round = 0; round < rounds; ++round) {
+        scheduler.reset_statistics();
 
-    // ----------------------------------------
-    // 统计
-    // ----------------------------------------
+        std::cout
+            << "========== Round "
+            << (round + 1)
+            << " ==========\n";
 
-    const auto total_requests =
-        request_count.load(
+        std::atomic<bool> running{true};
+
+        std::atomic<std::size_t> request_count{0};
+
+        std::atomic<std::size_t> completed_count{0};
+
+        std::vector<std::thread> clients;
+
+        auto start = Clock::now();
+
+        // --------------------------------------------------
+        // Start clients
+        // --------------------------------------------------
+
+        for (int t = 0; t < num_clients; ++t) {
+
+            clients.emplace_back([&]() {
+
+                while (
+                    running.load(
+                        std::memory_order_relaxed
+                    )
+                ) {
+
+                    auto request =
+                        std::make_shared<InferenceRequest>();
+
+                    request->id =
+                        request_count.fetch_add(
+                            1,
+                            std::memory_order_relaxed
+                        );
+
+                    request->input = {
+                        1.0f,
+                        2.0f,
+                        3.0f
+                    };
+
+                    auto future =
+                        request->promise.get_future();
+
+                    if (!queue.push(request)) {
+                        break;
+                    }
+
+                    try {
+
+                        future.get();
+
+                        completed_count.fetch_add(
+                            1,
+                            std::memory_order_relaxed
+                        );
+
+                    } catch (
+                        const std::future_error& e
+                    ) {
+
+                        std::cerr
+                            << "future error: "
+                            << e.what()
+                            << '\n';
+
+                        break;
+                    }
+                }
+            });
+        }
+
+        // --------------------------------------------------
+        // Measurement period
+        // --------------------------------------------------
+
+        std::this_thread::sleep_for(
+            std::chrono::seconds(
+                duration_seconds
+            )
+        );
+
+        running.store(
+            false,
             std::memory_order_relaxed
         );
 
-    const auto completed_requests =
-        completed_count.load(
-            std::memory_order_relaxed
-        );
+        // --------------------------------------------------
+        // Wait for all requests
+        // --------------------------------------------------
 
-    const double elapsed =
-        std::chrono::duration<double>(
-            benchmark_end - benchmark_start
-        ).count();
+        for (auto& client : clients) {
+            client.join();
+        }
 
-    const double throughput =
-        elapsed > 0.0
-            ? static_cast<double>(
-                completed_requests
-              ) / elapsed
-            : 0.0;
+        auto end = Clock::now();
 
-    const auto total_batches =
-        scheduler.total_batches();
+        // --------------------------------------------------
+        // Statistics
+        // --------------------------------------------------
 
-    const auto batched_requests =
-        scheduler.total_requests();
+        const auto requests =
+            request_count.load(
+                std::memory_order_relaxed
+            );
 
-    const auto max_actual_batch =
-        scheduler.max_batch_size_seen();
+        const auto completed =
+            completed_count.load(
+                std::memory_order_relaxed
+            );
 
-    const double average_batch_size =
-        total_batches > 0
-            ? static_cast<double>(
-                batched_requests
-              ) / total_batches
-            : 0.0;
+        const double elapsed =
+            std::chrono::duration<double>(
+                end - start
+            ).count();
 
-    // ----------------------------------------
-    // 输出
-    // ----------------------------------------
+        const double throughput =
+            elapsed > 0.0
+                ? static_cast<double>(
+                    completed
+                  ) / elapsed
+                : 0.0;
+
+        const auto batches =
+            scheduler.total_batches();
+
+        const auto batch_requests =
+            scheduler.total_requests();
+
+        const auto max_batch =
+            scheduler.max_batch_size_seen();
+
+        const double average_batch =
+            batches > 0
+                ? static_cast<double>(
+                    batch_requests
+                  ) / batches
+                : 0.0;
+
+        RoundResult result;
+
+        result.requests = requests;
+        result.completed = completed;
+        result.elapsed = elapsed;
+        result.throughput = throughput;
+        result.batches = batches;
+        result.average_batch = average_batch;
+        result.max_batch = max_batch;
+
+        results.push_back(result);
+
+        std::cout
+            << "Requests: "
+            << requests
+            << '\n';
+
+        std::cout
+            << "Completed: "
+            << completed
+            << '\n';
+
+        std::cout
+            << "Elapsed: "
+            << elapsed
+            << " s\n";
+
+        std::cout
+            << "Throughput: "
+            << throughput
+            << " req/s\n";
+
+        std::cout
+            << "Total Batches: "
+            << batches
+            << '\n';
+
+        std::cout
+            << "Average Batch Size: "
+            << average_batch
+            << '\n';
+
+        std::cout
+            << "Max Actual Batch Size: "
+            << max_batch
+            << '\n';
+
+        std::cout
+            << '\n';
+    }
+
+    // --------------------------------------------------
+    // Final statistics
+    // --------------------------------------------------
+
+    double throughput_sum = 0.0;
+
+    for (const auto& result : results) {
+        throughput_sum += result.throughput;
+    }
+
+    const double average_throughput =
+        results.empty()
+            ? 0.0
+            : throughput_sum / results.size();
 
     std::cout
-        << "========== Benchmark ==========\n";
+        << "========================================\n";
+
+    std::cout
+        << "Benchmark Summary\n";
+
+    std::cout
+        << "Batch Size: "
+        << max_batch_size
+        << '\n';
 
     std::cout
         << "Clients: "
@@ -247,52 +392,29 @@ int main(int argc, char* argv[]) {
         << '\n';
 
     std::cout
+        << "Warmup: "
+        << warmup_seconds
+        << " s\n";
+
+    std::cout
         << "Duration: "
         << duration_seconds
         << " s\n";
 
     std::cout
-        << "Max Batch Size: "
-        << max_batch_size
+        << "Rounds: "
+        << rounds
         << '\n';
 
     std::cout
-        << "Total Requests: "
-        << total_requests
-        << '\n';
-
-    std::cout
-        << "Completed Requests: "
-        << completed_requests
-        << '\n';
-
-    std::cout
-        << "Elapsed: "
-        << elapsed
-        << " s\n";
-
-    std::cout
-        << "Throughput: "
-        << throughput
+        << "Average Throughput: "
+        << average_throughput
         << " req/s\n";
 
     std::cout
-        << "Total Batches: "
-        << total_batches
-        << '\n';
+        << "========================================\n";
 
-    std::cout
-        << "Average Batch Size: "
-        << average_batch_size
-        << '\n';
-
-    std::cout
-        << "Max Actual Batch Size: "
-        << max_actual_batch
-        << '\n';
-
-    std::cout
-        << "================================\n";
+    scheduler.stop();
 
     return 0;
 }

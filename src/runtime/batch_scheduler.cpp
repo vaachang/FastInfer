@@ -152,5 +152,20 @@ std::size_t BatchScheduler::max_batch_size_seen() const {
         std::memory_order_relaxed
     );
 }
+void BatchScheduler::reset_statistics() {
+    total_batches_.store(
+        0,
+        std::memory_order_relaxed
+    );
 
+    total_requests_.store(
+        0,
+        std::memory_order_relaxed
+    );
+
+    max_batch_size_seen_.store(
+        0,
+        std::memory_order_relaxed
+    );
+}
 } // namespace minisrv

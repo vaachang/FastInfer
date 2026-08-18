@@ -29,6 +29,7 @@ public:
     std::size_t total_batches() const;
     std::size_t total_requests() const;
     std::size_t max_batch_size_seen() const;
+    void reset_statistics();
 
     BatchScheduler(const BatchScheduler&) = delete;
     BatchScheduler& operator=(const BatchScheduler&) = delete;
