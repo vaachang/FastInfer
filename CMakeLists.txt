@@ -106,6 +106,15 @@ target_link_libraries(benchmark
     ${ONNXRUNTIME_LIBRARIES}
 )
 
+add_executable(http_benchmark
+    tests/http_benchmark.cpp
+)
+
+target_include_directories(http_benchmark
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/include
+)
+
 if (MSVC)
     target_compile_options(minisrv PRIVATE /W4)
 else()
