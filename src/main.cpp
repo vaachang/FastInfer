@@ -2,6 +2,7 @@
 #include "minisrv/runtime/batch_scheduler.h"
 #include "minisrv/runtime/inference_request.h"
 #include "minisrv/runtime/onnxruntime_backend.h"
+#include "minisrv/server/http_server.h"
 
 #include <chrono>
 #include <iostream>
@@ -25,6 +26,14 @@ int main() {
         4,
         std::chrono::milliseconds(100)
     );
+
+    HttpServer server(
+        queue,
+        "0.0.0.0",
+        8080
+    );
+
+    server.start();
 
     scheduler.start();
 

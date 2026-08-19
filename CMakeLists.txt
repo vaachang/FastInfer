@@ -21,6 +21,7 @@ add_executable(minisrv
     src/runtime/batch_scheduler.cpp
     src/runtime/fake_backend.cpp
     src/runtime/onnxruntime_backend.cpp
+    src/server/http_server.cpp
 )
 
 target_include_directories(minisrv
