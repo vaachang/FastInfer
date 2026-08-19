@@ -344,9 +344,6 @@ int main(int argc, char* argv[]) {
                     completed
                   ) / elapsed
                 : 0.0;
-        double p50 = 0.0;
-        double p95 = 0.0;
-        double p99 = 0.0;
 
         auto percentile = [](
             std::vector<double>& values,

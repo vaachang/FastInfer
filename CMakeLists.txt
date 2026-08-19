@@ -5,106 +5,96 @@ project(MiniServe
     LANGUAGES CXX
 )
 
+# ============================================================
+# C++ Configuration
+# ============================================================
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+
+# ============================================================
+# Dependencies
+# ============================================================
+
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(ONNXRUNTIME REQUIRED libonnxruntime)
 
-add_executable(minisrv
-    src/main.cpp
-    src/core/thread_pool.cpp
+
+# ============================================================
+# Common Configuration
+# ============================================================
+
+set(MINISERVE_INCLUDE_DIR
+    ${PROJECT_SOURCE_DIR}/include
+)
+
+set(MINISERVE_SOURCES
     src/runtime/batch.cpp
     src/runtime/batch_scheduler.cpp
-    src/runtime/fake_backend.cpp
     src/runtime/onnxruntime_backend.cpp
+)
+
+
+# ============================================================
+# MiniServe Server
+# ============================================================
+
+add_executable(minisrv
+    src/main.cpp
+    ${MINISERVE_SOURCES}
     src/server/http_server.cpp
 )
 
 target_include_directories(minisrv
     PRIVATE
-    ${ONNXRUNTIME_INCLUDE_DIRS}
+        ${MINISERVE_INCLUDE_DIR}
+        ${ONNXRUNTIME_INCLUDE_DIRS}
 )
 
 target_link_directories(minisrv
     PRIVATE
-    ${ONNXRUNTIME_LIBRARY_DIRS}
+        ${ONNXRUNTIME_LIBRARY_DIRS}
 )
 
 target_link_libraries(minisrv
     PRIVATE
-    ${ONNXRUNTIME_LIBRARIES}
+        ${ONNXRUNTIME_LIBRARIES}
 )
 
-target_include_directories(minisrv
-    PRIVATE
-        ${PROJECT_SOURCE_DIR}/include
-)
 
-add_executable(ort_test
-    src/runtime/ort_test.cpp
-)
-
-target_include_directories(ort_test
-    PRIVATE
-    ${ONNXRUNTIME_INCLUDE_DIRS}
-)
-
-target_link_directories(ort_test
-    PRIVATE
-    ${ONNXRUNTIME_LIBRARY_DIRS}
-)
-
-target_link_libraries(ort_test
-    PRIVATE
-    ${ONNXRUNTIME_LIBRARIES}
-)
-
-add_executable(ort_infer_test
-    src/runtime/ort_infer_test.cpp
-)
-
-target_include_directories(ort_infer_test
-    PRIVATE
-    ${ONNXRUNTIME_INCLUDE_DIRS}
-)
-
-target_link_directories(ort_infer_test
-    PRIVATE
-    ${ONNXRUNTIME_LIBRARY_DIRS}
-)
-
-target_link_libraries(ort_infer_test
-    PRIVATE
-    ${ONNXRUNTIME_LIBRARIES}
-)
+# ============================================================
+# Benchmark
+# ============================================================
 
 add_executable(benchmark
     tests/benchmark.cpp
-    src/core/thread_pool.cpp
-    src/runtime/batch.cpp
-    src/runtime/batch_scheduler.cpp
-    src/runtime/onnxruntime_backend.cpp
+    ${MINISERVE_SOURCES}
 )
 
 target_include_directories(benchmark
     PRIVATE
-    ${PROJECT_SOURCE_DIR}/include
-    ${ONNXRUNTIME_INCLUDE_DIRS}
+        ${MINISERVE_INCLUDE_DIR}
+        ${ONNXRUNTIME_INCLUDE_DIRS}
 )
 
 target_link_directories(benchmark
     PRIVATE
-    ${ONNXRUNTIME_LIBRARY_DIRS}
+        ${ONNXRUNTIME_LIBRARY_DIRS}
 )
 
 target_link_libraries(benchmark
     PRIVATE
-    ${ONNXRUNTIME_LIBRARIES}
+        ${ONNXRUNTIME_LIBRARIES}
 )
+
+
+# ============================================================
+# HTTP Benchmark
+# ============================================================
 
 add_executable(http_benchmark
     tests/http_benchmark.cpp
@@ -112,15 +102,38 @@ add_executable(http_benchmark
 
 target_include_directories(http_benchmark
     PRIVATE
-        ${PROJECT_SOURCE_DIR}/include
+        ${MINISERVE_INCLUDE_DIR}
 )
 
+
+# ============================================================
+# Compiler Warnings
+# ============================================================
+
 if (MSVC)
+
     target_compile_options(minisrv PRIVATE /W4)
+    target_compile_options(benchmark PRIVATE /W4)
+    target_compile_options(http_benchmark PRIVATE /W4)
+
 else()
+
     target_compile_options(minisrv PRIVATE
         -Wall
         -Wextra
         -Wpedantic
     )
+
+    target_compile_options(benchmark PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+    )
+
+    target_compile_options(http_benchmark PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+    )
+
 endif()
