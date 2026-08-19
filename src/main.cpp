@@ -7,7 +7,6 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
-#include <vector>
 
 int main() {
     using namespace minisrv;

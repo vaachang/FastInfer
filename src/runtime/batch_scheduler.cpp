@@ -1,7 +1,6 @@
 #include "minisrv/runtime/batch_scheduler.h"
 
 #include <stdexcept>
-#include <iostream>
 
 namespace minisrv {
 

@@ -8,7 +8,6 @@
 #include <cstddef>
 #include <iostream>
 #include <memory>
-#include <numeric>
 #include <string>
 #include <thread>
 #include <vector>

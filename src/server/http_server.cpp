@@ -5,7 +5,6 @@
 
 #include <atomic>
 #include <iostream>
-#include <stdexcept>
 
 namespace minisrv {
 
