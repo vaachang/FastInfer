@@ -33,45 +33,18 @@ int main() {
         8080
     );
 
+    scheduler.start();
     server.start();
 
-    scheduler.start();
+    std::cout
+        << "MiniServe started.\n";
 
-    std::vector<
-        std::future<InferenceResult>
-    > futures;
+    // 暂时让主线程保持运行
+    std::this_thread::sleep_for(
+        std::chrono::hours(24)
+    );
 
-    for (int i = 0; i < 2; ++i) {
-        auto request =
-            std::make_shared<InferenceRequest>();
-
-        request->id = i + 1;
-
-        request->input = {
-            static_cast<float>(i * 3 + 1),
-            static_cast<float>(i * 3 + 2),
-            static_cast<float>(i * 3 + 3)
-        };
-
-        futures.emplace_back(
-            request->promise.get_future()
-        );
-
-        queue.push(std::move(request));
-    }
-
-    for (auto& future : futures) {
-        auto result = future.get();
-
-        std::cout << "Result:";
-
-        for (float value : result.output) {
-            std::cout << ' ' << value;
-        }
-
-        std::cout << '\n';
-    }
-
+    server.stop();
     scheduler.stop();
 
     return 0;
